@@ -8,7 +8,7 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
-const User = require('./models/user');
+const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
 
