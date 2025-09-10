@@ -2,13 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const admin = require('firebase-admin');
+const admin = require('./firebaseAdmin'); 
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
-const User = require('./models/User');
+const User = require('./models/user');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
 
@@ -18,15 +18,9 @@ app.use(cors());
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // connect mongoose
-mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected'))
   .catch(err => { console.error(err); process.exit(1); });
-
-// init firebase
-// const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
-
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
 // init cloudinary
 cloudinary.config({
@@ -48,6 +42,7 @@ async function verifyToken(req, res, next) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
+
 
 // auth sync
 app.post('/auth/sync', verifyToken, async (req, res) => {
