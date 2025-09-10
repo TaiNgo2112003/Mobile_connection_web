@@ -9,7 +9,7 @@ const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
 const User = require('./models/User');
-const Post = require('./models/Post');
+const Post = require('./models/post');
 const Comment = require('./models/Comment');
 
 const app = express();
@@ -270,5 +270,5 @@ app.post('/api/posts/create', verifyToken, multer().fields([{ name: 'video' }, {
 });
 
 // start server
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+module.exports = app;
+
