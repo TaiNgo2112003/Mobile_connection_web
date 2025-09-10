@@ -24,7 +24,7 @@ mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTop
 
 // init firebase
 // const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
 
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
