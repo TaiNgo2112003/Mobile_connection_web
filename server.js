@@ -23,7 +23,9 @@ mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTop
   .catch(err => { console.error(err); process.exit(1); });
 
 // init firebase
-const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
+// const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
 // init cloudinary
