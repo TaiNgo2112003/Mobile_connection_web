@@ -203,17 +203,31 @@ app.post('/api/posts/:postId/react', verifyToken, async (req, res) => {
 });
 
 // upload image
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
+
 app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file' });
-    const result = await cloudinary.uploader.upload(req.file.path, { folder: 'social_media_profiles' });
-    fs.unlinkSync(req.file.path);
-    return res.json({ ok: true, url: result.secure_url });
-  } catch {
+
+    // Dùng stream để upload buffer trực tiếp lên Cloudinary
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'social_media_profiles' },
+      (error, result) => {
+        if (error) {
+          console.error(error);
+          return res.status(500).json({ error: 'Upload error' });
+        }
+        return res.json({ ok: true, url: result.secure_url });
+      }
+    );
+
+    streamifier.createReadStream(req.file.buffer).pipe(stream);
+  } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: 'Upload error' });
   }
 });
+
 
 // comment
 app.post('/api/posts/:postId/comments', verifyToken, async (req, res) => {
