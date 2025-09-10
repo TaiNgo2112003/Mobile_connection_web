@@ -8,9 +8,9 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
-const User = require('./models/User');
+const User = require('./models/user');
 const Post = require('./models/post');
-const Comment = require('./models/Comment');
+const Comment = require('./models/comment');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
