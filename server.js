@@ -336,6 +336,12 @@ app.post('/api/relationships', verifyToken, async (req, res) => {
 app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
   try {
     const { relationshipId } = req.params;
+    console.log('PUT /api/relationships/:relationshipId called, params:', req.params, 'body:', req.body, 'req.userId:', req.userId);
+
+    if (!mongoose.Types.ObjectId.isValid(relationshipId)) {
+      return res.status(400).json({ message: 'Invalid relationshipId' });
+    }
+
     const { status } = req.body;
     const relationship = await Relationship.findByIdAndUpdate(
       relationshipId,
@@ -347,10 +353,10 @@ app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
     }
     res.status(200).json(relationship);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: error.message });
   }
 });
-
 // get friends
 app.get('/api/relationships/friends/:userId', verifyToken, async (req, res) => {
   try {
