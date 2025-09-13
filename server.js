@@ -349,7 +349,7 @@ app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
       { new: true }
     );
     if (!relationship) {
-      return res.status(404).json({ message: 'Relationship not found' });
+      return res.status(404).json({ message: 'Relationship not found, so sad' });
     }
     res.status(200).json(relationship);
   } catch (error) {
@@ -399,16 +399,15 @@ app.get('/api/relationships/blocks/:userId', verifyToken, async (req, res) => {
 app.get('/api/relationships/requests/:userId', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
+
     const requests = await Relationship.find({
-      $or: [
-        { requester: userId, status: 'pending' },
-        { recipient: userId, status: 'pending' }
-      ]
-    });
-    const requestIds = requests.map(request =>
-      request.requester.toString() === userId ? request.recipient : request.requester
-    );
-    res.status(200).json(requestIds);
+      recipient: userId,
+      status: 'pending'
+    })
+      .populate('requester', 'fullName profilePic email') 
+      .populate('recipient', 'fullName profilePic email'); 
+
+    res.status(200).json(requests);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
