@@ -12,7 +12,13 @@ export const createRelationship = async (req, res) => {
         if (existingRelationship) {
             return res.status(400).json({ message: 'Relationship already exists' });
         }
-        const relationship = new Relationship({ requester, recipient });
+        const relationship = new Relationship({
+            requester,
+            recipient,
+            status: 'pending',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        });
         await relationship.save();
         res.status(201).json(relationship);
     } catch (error) {
@@ -72,7 +78,8 @@ export const getPendingRequests = async (req, res) => {
     try {
         const { userId } = req.params;
         const requests = await Relationship.find({
-            $or: [{ requester: userId, status: 'pending' }, { recipient: userId, status: 'pending' }]
+            $or: [{ requester: userId, status: 'pending' }, 
+                  { recipient: userId, status: 'pending' },]
         });
         const requestIds = requests.map(request =>
             request.requester.toString() === userId ? request.recipient : request.requester

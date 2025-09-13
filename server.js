@@ -312,84 +312,25 @@ app.get('/api/users/search', verifyToken, async (req, res) => {
 
 
 // create relationship
-const mongoose = require('mongoose');
-
-// POST /api/relationships
 app.post('/api/relationships', verifyToken, async (req, res) => {
   try {
-    // verifyToken phải gán req.userId (id của user đang login)
-    const requester = req.userId;
-    const { recipient } = req.body;
-
-    if (!requester) {
-      return res.status(401).json({ message: 'Unauthorized: missing requester' });
-    }
-
-    if (!recipient) {
-      return res.status(400).json({ message: 'recipient is required' });
-    }
-
-    // validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(recipient)) {
-      return res.status(400).json({ message: 'Invalid recipient id' });
-    }
-
-    // prevent sending request to self
-    if (requester.toString() === recipient.toString()) {
-      return res.status(400).json({ message: 'Cannot create relationship with yourself' });
-    }
-
-    // check existing relationship in either direction
+    const { requester, recipient } = req.body;
     const existingRelationship = await Relationship.findOne({
       $or: [
         { requester, recipient },
         { requester: recipient, recipient: requester }
       ]
     });
-
     if (existingRelationship) {
-      // nếu muốn, có thể trả 200 + existing relationship thay vì 400
-      // hoặc trả 409 Conflict. Ở đây trả 200 với object hiện có để client biết trạng thái.
-      const populated = await Relationship.findById(existingRelationship._id)
-        .populate('requester', 'fullName email profilePic')
-        .populate('recipient', 'fullName email profilePic');
-      return res.status(200).json({ message: 'Relationship already exists', relationship: populated });
+      return res.status(400).json({ message: 'Relationship already exists' });
     }
-
-    // tạo mới: requester lấy từ token để tránh client gán lộn
-    const relationship = new Relationship({ requester, recipient, status: 'pending' });
-
-    try {
-      await relationship.save();
-    } catch (saveErr) {
-      // handle duplicate key (race condition)
-      if (saveErr && saveErr.code === 11000) {
-        const existing = await Relationship.findOne({
-          $or: [
-            { requester, recipient },
-            { requester: recipient, recipient: requester }
-          ]
-        });
-        const populated = existing
-          ? await Relationship.findById(existing._id).populate('requester', 'fullName email profilePic').populate('recipient', 'fullName email profilePic')
-          : null;
-        return res.status(200).json({ message: 'Relationship already exists', relationship: populated });
-      }
-      throw saveErr;
-    }
-
-    // trả về relationship đã populate để client không phải fetch thêm
-    const populated = await Relationship.findById(relationship._id)
-      .populate('requester', 'fullName email profilePic')
-      .populate('recipient', 'fullName email profilePic');
-
-    res.status(201).json(populated);
+    const relationship = new Relationship({ requester, recipient });
+    await relationship.save();
+    res.status(201).json(relationship);
   } catch (error) {
-    console.error('Create relationship error:', error);
     res.status(500).json({ message: error.message });
   }
 });
-
 
 // update relationship
 app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
