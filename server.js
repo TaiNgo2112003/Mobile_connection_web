@@ -2,15 +2,22 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const admin = require('./firebaseAdmin'); 
+const admin = require('./firebaseAdmin');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
+const { createRelationship,
+        updateRelationship,
+        getFriendsUser,
+        getBlocksUser,
+        getPendingRequests,
+        deleteRelationship } = require('./controllers/relationship.controller')
 const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
+const Relationship = require('./models/relationships');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -134,6 +141,7 @@ app.put('/me', verifyToken, async (req, res) => {
   }
 });
 
+// update location
 app.put('/me/location', verifyToken, async (req, res) => {
   try {
     const { latitude, longitude } = req.body || {};
@@ -148,6 +156,7 @@ app.put('/me/location', verifyToken, async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
+// get nearby users
 app.get('/users/nearby', verifyToken, async (req, res) => {
   try {
     const { latitude, longitude, distance } = req.query;
@@ -277,6 +286,136 @@ app.post('/api/posts/create', verifyToken, multer().fields([{ name: 'video' }, {
     res.status(201).json(newPost);
   } catch {
     res.status(500).json({ error: "Lỗi server!" });
+  }
+});
+
+//-----------------------------------------------------------Relationship routes-----------------------------------------------------------//
+// search users
+
+app.get('/api/users/search', verifyToken, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string' || !q.trim()) {
+      return res.status(400).json({ error: 'Missing search query' });
+    }
+    const users = await User.find({
+      $or: [
+        { fullName: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    }).select('fullName email profilePic');
+    return res.json({ ok: true, users });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+// create relationship
+app.post('/api/relationships', verifyToken, async (req, res) => {
+  try {
+    const { requester, recipient } = req.body;
+    const existingRelationship = await Relationship.findOne({
+      $or: [
+        { requester, recipient },
+        { requester: recipient, recipient: requester }
+      ]
+    });
+    if (existingRelationship) {
+      return res.status(400).json({ message: 'Relationship already exists' });
+    }
+    const relationship = new Relationship({ requester, recipient });
+    await relationship.save();
+    res.status(201).json(relationship);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// update relationship
+app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
+  try {
+    const { relationshipId } = req.params;
+    const { status } = req.body;
+    const relationship = await Relationship.findByIdAndUpdate(
+      relationshipId,
+      { status, updatedAt: new Date() },
+      { new: true }
+    );
+    if (!relationship) {
+      return res.status(404).json({ message: 'Relationship not found' });
+    }
+    res.status(200).json(relationship);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// get friends
+app.get('/api/relationships/friends/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const friends = await Relationship.find({
+      $or: [
+        { requester: userId, status: 'accepted' },
+        { recipient: userId, status: 'accepted' }
+      ]
+    });
+    const friendIds = friends.map(friend =>
+      friend.requester.toString() === userId ? friend.recipient : friend.requester
+    );
+    res.status(200).json(friendIds);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// get blocks
+app.get('/api/relationships/blocks/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const blocks = await Relationship.find({
+      $or: [
+        { requester: userId, status: 'blocked' },
+        { recipient: userId, status: 'blocked' }
+      ]
+    });
+    const blockedUserIds = blocks.map(block =>
+      block.requester.toString() === userId ? block.recipient : block.requester
+    );
+    res.status(200).json(blockedUserIds);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// get pending requests
+app.get('/api/relationships/requests/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requests = await Relationship.find({
+      $or: [
+        { requester: userId, status: 'pending' },
+        { recipient: userId, status: 'pending' }
+      ]
+    });
+    const requestIds = requests.map(request =>
+      request.requester.toString() === userId ? request.recipient : request.requester
+    );
+    res.status(200).json(requestIds);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// delete relationship
+app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
+  try {
+    const { relationshipId } = req.params;
+    await Relationship.findByIdAndDelete(relationshipId);
+    res.status(200).json({ message: 'Relationship deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 
