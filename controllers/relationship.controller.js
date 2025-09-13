@@ -74,21 +74,24 @@ export const getBlocksUser = async (req, res) => {
     }
 }
 
+// sửa getPendingRequests
 export const getPendingRequests = async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const requests = await Relationship.find({
-            $or: [{ requester: userId, status: 'pending' }, 
-                  { recipient: userId, status: 'pending' },]
-        });
-        const requestIds = requests.map(request =>
-            request.requester.toString() === userId ? request.recipient : request.requester
-        );
-        res.status(200).json(requestIds);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
+  try {
+    const { userId } = req.params;
+    const requests = await Relationship.find({
+      $or: [
+        { requester: userId, status: 'pending' },
+        { recipient: userId, status: 'pending' }
+      ]
+    }).populate('requester', 'fullName profilePic email')
+      .populate('recipient', 'fullName profilePic email');
+
+    res.status(200).json(requests); 
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteRelationship = async (req, res) => {
     try {
         const { relationshipId } = req.params;
