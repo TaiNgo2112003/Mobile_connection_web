@@ -1,29 +1,29 @@
-// models/Relationship.js
 const mongoose = require('mongoose');
 
-const friendshipSchema = new mongoose.Schema({
-  requester: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  // pairHash giúp enforce unique không phụ thuộc thứ tự (A:B === B:A)
-  pairHash: { type: String, required: true, unique: true, index: true },
-  status: {
-    type: String,
-    enum: ['pending', 'accepted', 'rejected', 'blocked'],
-    default: 'pending'
+const SocialMediaSchema = new mongoose.Schema({
+  platform: { type: String, required: true },
+  url: { type: String, required: true },
+}, { _id: false });
+
+const UserSchema = new mongoose.Schema({
+  firebaseUid: { type: String, required: true, unique: true },
+  email: { type: String, required: true },
+  fullName: { type: String, default: '' },
+  password: { type: String, default: '' },
+  profilePic: { type: String, default: '' },
+  socialMedias: { type: [SocialMediaSchema], default: [] },
+  location: {
+    type: { type: String, enum: ['Point'], default: 'Point' },
+    coordinates: { type: [Number], default: [0, 0] }, 
   },
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
 });
 
-// before validate/save, set pairHash as sorted ids
-friendshipSchema.pre('validate', function(next) {
-  try {
-    const a = this.requester.toString();
-    const b = this.recipient.toString();
-    this.pairHash = [a, b].sort().join(':');
-    this.updatedAt = new Date();
-    next();
-  } catch (err) { next(err); }
+UserSchema.index({ location: '2dsphere' });
+UserSchema.pre('save', function(next){
+  this.updatedAt = new Date();
+  next();
 });
 
-module.exports = mongoose.model('Relationship', friendshipSchema);
+module.exports = mongoose.model('User', UserSchema);
