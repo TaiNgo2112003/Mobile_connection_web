@@ -1,112 +1,188 @@
-import Relationship from '../models/relationships.js';
+import Relationship from '../models/Relationship.js';
+import User from '../models/User.js'; // để search/populate
+import mongoose from 'mongoose';
 
+/**
+ * Tạo friend request
+ * requester = req.user.id (người gửi)
+ * recipient = body.recipient (id hoặc email tùy client)
+ */
 export const createRelationship = async (req, res) => {
-    try {
-        const { requester, recipient } = req.body;
-        const existingRelationship = await Relationship.findOne({
-            $or: [
-                { requester, recipient },
-                { requester: recipient, recipient: requester }
-            ]
-        });
-        if (existingRelationship) {
-            return res.status(400).json({ message: 'Relationship already exists' });
-        }
-        const relationship = new Relationship({
-            requester,
-            recipient,
-            status: 'pending',
-            createdAt: new Date(),
-            updatedAt: new Date()
-        });
-        await relationship.save();
-        res.status(201).json(relationship);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
-
-export const updateRelationship = async (req, res) => {
-    try {
-        const { relationshipId } = req.params;
-        const { status } = req.body;
-        const relationship = await Relationship.findByIdAndUpdate(
-            relationshipId,
-            { status, updatedAt: new Date() },
-            { new: true }
-        );
-        if (!relationship) {
-            return res.status(404).json({ message: 'Relationship not found' });
-        }
-        res.status(200).json(relationship);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
-
-export const getFriendsUser = async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const friends = await Relationship.find({
-            $or: [{ requester: userId, status: 'accepted' }, { recipient: userId, status: 'accepted' }]
-        });
-        const friendIds = friends.map(friend =>
-            friend.requester.toString() === userId ? friend.recipient : friend.requester
-        );
-        res.status(200).json(friendIds);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
-
-export const getBlocksUser = async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const blocks = await Relationship.find({
-            $or: [{ requester: userId, status: 'blocked' }, { recipient: userId, status: 'blocked' }]
-        });
-        const blockedUserIds = blocks.map(block =>
-            block.requester.toString() === userId ? block.recipient : block.requester
-        );
-        res.status(200).json(blockedUserIds);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
-
-// sửa getPendingRequests
-export const getPendingRequests = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const requests = await Relationship.find({
-      $or: [
-        { requester: userId, status: 'pending' },
-        { recipient: userId, status: 'pending' }
-      ]
-    }).populate('requester', 'fullName profilePic email')
-      .populate('recipient', 'fullName profilePic email');
+    const requester = req.user.id; // giả sử auth middleware
+    const { recipient } = req.body;
 
-    res.status(200).json(requests); 
+    if (!recipient) return res.status(400).json({ message: 'Recipient required' });
+    if (requester === recipient) return res.status(400).json({ message: 'Cannot friend yourself' });
+
+    // Check existing relationship both cách đã được xử lý bởi pairHash unique nhưng check trước để trả lỗi thân thiện
+    const pairHash = [requester, recipient].sort().join(':');
+    const existing = await Relationship.findOne({ pairHash });
+    if (existing) {
+      return res.status(400).json({ message: 'Relationship already exists', existing });
+    }
+
+    const relationship = new Relationship({
+      requester,
+      recipient,
+      status: 'pending'
+    });
+
+    await relationship.save();
+    // populate before return
+    await relationship.populate('requester', 'fullName email profilePic').populate('recipient', 'fullName email profilePic').execPopulate?.();
+
+    res.status(201).json(relationship);
+  } catch (error) {
+    // handle duplicate key race condition
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Relationship already exists (race)' });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Accept / Reject / Block
+ * Only recipient can accept/reject a pending request
+ */
+export const updateRelationship = async (req, res) => {
+  try {
+    const { relationshipId } = req.params;
+    const { status } = req.body; // expected 'accepted'|'rejected'|'blocked'
+    const userId = req.user.id;
+
+    const rel = await Relationship.findById(relationshipId);
+    if (!rel) return res.status(404).json({ message: 'Relationship not found' });
+
+    // only recipient can accept/reject when current status is pending
+    if (rel.status === 'pending' && status === 'accepted') {
+      if (rel.recipient.toString() !== userId) {
+        return res.status(403).json({ message: 'Only recipient can accept the request' });
+      }
+    }
+
+    rel.status = status;
+    rel.updatedAt = new Date();
+    await rel.save();
+
+    await rel.populate('requester', 'fullName email profilePic').populate('recipient', 'fullName email profilePic').execPopulate?.();
+
+    res.status(200).json(rel);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-export const deleteRelationship = async (req, res) => {
-    try {
-        const { relationshipId } = req.params;
-        await Relationship.findByIdAndDelete(relationshipId);
-        res.status(200).json({ message: 'Relationship deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
+/**
+ * Search users by q (email or fullName)
+ * Exclude self and optionally exclude users with existing relationships
+ */
+export const searchUsers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const q = req.query.q || '';
+    if (!q) return res.status(400).json({ message: 'Query param q required' });
+    const rels = await Relationship.find({
+      $or: [{ requester: userId }, { recipient: userId }]
+    });
+
+    const relatedIds = new Set();
+    rels.forEach(r => {
+      const a = r.requester.toString();
+      const b = r.recipient.toString();
+      if (a !== userId) relatedIds.add(a);
+      if (b !== userId) relatedIds.add(b);
+    });
+
+    const regex = new RegExp(q, 'i');
+    const users = await User.find({
+      _id: { $ne: userId, $nin: Array.from(relatedIds) },
+      $or: [{ email: regex }, { fullName: regex }]
+    }).select('fullName email profilePic');
+
+    res.status(200).json(users);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Get incoming pending (requests where user is recipient)
+ */
+export const getIncomingPending = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const incoming = await Relationship.find({ recipient: userId, status: 'pending' })
+      .populate('requester', 'fullName email profilePic')
+      .populate('recipient', 'fullName email profilePic');
+    res.status(200).json(incoming);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Get outgoing pending (requests where user is requester)
+ */
+export const getOutgoingPending = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const outgoing = await Relationship.find({ requester: userId, status: 'pending' })
+      .populate('requester', 'fullName email profilePic')
+      .populate('recipient', 'fullName email profilePic');
+    res.status(200).json(outgoing);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Get friends list (accepted) — trả về user objects
+ */
+export const getFriendsUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const friends = await Relationship.find({
+      $or: [{ requester: userId, status: 'accepted' }, { recipient: userId, status: 'accepted' }]
+    }).populate('requester', 'fullName email profilePic').populate('recipient', 'fullName email profilePic');
+
+    // map to other user object (so client không cần biết ai là requester)
+    const friendUsers = friends.map(f => {
+      const other = f.requester._id.toString() === userId ? f.recipient : f.requester;
+      return { _id: other._id, fullName: other.fullName, email: other.email, profilePic: other.profilePic };
+    });
+
+    res.status(200).json(friendUsers);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Unfriend (delete relationship) — either party can call
+ */
+export const unfriend = async (req, res) => {
+  try {
+    const { userId } = req.user; // caller
+    const { otherUserId } = req.params;
+
+    const pairHash = [userId, otherUserId].sort().join(':');
+    const rel = await Relationship.findOneAndDelete({ pairHash });
+    if (!rel) return res.status(404).json({ message: 'Relationship not found' });
+
+    res.status(200).json({ message: 'Unfriended' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 export default {
-    createRelationship,
-    updateRelationship,
-    getFriendsUser,
-    getBlocksUser,
-    getPendingRequests,
-    deleteRelationship
+  createRelationship,
+  updateRelationship,
+  searchUsers,
+  getIncomingPending,
+  getOutgoingPending,
+  getFriendsUser,
+  unfriend
 };

@@ -8,12 +8,16 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
-const { createRelationship,
+const {
+        createRelationship,
         updateRelationship,
+        searchUsers,
+        getIncomingPending,
+        getOutgoingPending,
         getFriendsUser,
-        getBlocksUser,
-        getPendingRequests,
-        deleteRelationship } = require('./controllers/relationship.controller')
+        unfriend 
+      } = require('./controllers/relationship.controller')
+
 const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
@@ -290,139 +294,159 @@ app.post('/api/posts/create', verifyToken, multer().fields([{ name: 'video' }, {
 });
 
 //-----------------------------------------------------------Relationship routes-----------------------------------------------------------//
-// search users
 
-app.get('/api/users/search', verifyToken, async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q || typeof q !== 'string' || !q.trim()) {
-      return res.status(400).json({ error: 'Missing search query' });
-    }
-    const users = await User.find({
-      $or: [
-        { fullName: { $regex: q, $options: 'i' } },
-        { email: { $regex: q, $options: 'i' } }
-      ]
-    }).select('fullName email profilePic');
-    return res.json({ ok: true, users });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error' });
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+const ensureSelfOrAdmin = (req, res) => {
+  const paramUserId = req.params.userId;
+  const callerId = req.user && req.user.id ? req.user.id.toString() : null;
+  const isAdmin = req.user && req.user.isAdmin; 
+  if (!paramUserId) return { ok: true };
+  if (isAdmin) return { ok: true };
+  if (paramUserId.toString() !== callerId) {
+    return { ok: false, res: res.status(403).json({ message: 'Forbidden: không được phép truy cập dữ liệu của người khác' }) };
   }
-});
+  return { ok: true };
+};
+router.get(
+  '/users/search',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(400).json({ message: 'Query parameter "q" is required' });
 
+    return await searchUsers(req, res);
+  })
+);
 
-// create relationship
-app.post('/api/relationships', verifyToken, async (req, res) => {
-  try {
-    const { requester, recipient } = req.body;
-    const existingRelationship = await Relationship.findOne({
-      $or: [
-        { requester, recipient },
-        { requester: recipient, recipient: requester }
-      ]
-    });
-    if (existingRelationship) {
-      return res.status(400).json({ message: 'Relationship already exists' });
-    }
-    const relationship = new Relationship({ requester, recipient });
-    await relationship.save();
-    res.status(201).json(relationship);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+router.post(
+  '/relationships',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const recipient = req.body.recipient;
+    if (!recipient) return res.status(400).json({ message: 'Field "recipient" is required' });
 
-// update relationship
-app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
-  try {
-    const { relationshipId } = req.params;
-    console.log('PUT /api/relationships/:relationshipId called, params:', req.params, 'body:', req.body, 'req.userId:', req.userId);
-
-    if (!mongoose.Types.ObjectId.isValid(relationshipId)) {
-      return res.status(400).json({ message: 'Invalid relationshipId' });
+    if (req.user && req.user.id && req.user.id.toString() === recipient.toString()) {
+      return res.status(400).json({ message: 'Cannot send friend request to yourself' });
     }
 
-    const { status } = req.body;
-    const relationship = await Relationship.findByIdAndUpdate(
-      relationshipId,
-      { status, updatedAt: new Date() },
-      { new: true }
-    );
-    if (!relationship) {
-      return res.status(404).json({ message: 'Relationship not found, so sad' });
-    }
-    res.status(200).json(relationship);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
-  }
-});
-// get friends
-app.get('/api/relationships/friends/:userId', verifyToken, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const friends = await Relationship.find({
-      $or: [
-        { requester: userId, status: 'accepted' },
-        { recipient: userId, status: 'accepted' }
-      ]
-    });
-    const friendIds = friends.map(friend =>
-      friend.requester.toString() === userId ? friend.recipient : friend.requester
-    );
-    res.status(200).json(friendIds);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+    return await createRelationship(req, res);
+  })
+);
 
-// get blocks
-app.get('/api/relationships/blocks/:userId', verifyToken, async (req, res) => {
-  try {
-    const { userId } = req.params;
+
+router.put(
+  '/relationships/:relationshipId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    return await updateRelationship(req, res);
+  })
+);
+
+router.get(
+  '/relationships/incoming/:userId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const check = ensureSelfOrAdmin(req, res);
+    if (!check.ok) return;
+    return await getIncomingPending(req, res);
+  })
+);
+
+
+router.get(
+  '/relationships/outgoing/:userId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const check = ensureSelfOrAdmin(req, res);
+    if (!check.ok) return;
+    return await getOutgoingPending(req, res);
+  })
+);
+
+router.get(
+  '/relationships/pending/:userId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const check = ensureSelfOrAdmin(req, res);
+    if (!check.ok) return;
+
+    const userId = req.params.userId;
+
+    // lấy incoming
+    const incoming = await Relationship.find({ recipient: userId, status: 'pending' })
+      .populate('requester', 'fullName email profilePic')
+      .populate('recipient', 'fullName email profilePic');
+
+    // lấy outgoing
+    const outgoing = await Relationship.find({ requester: userId, status: 'pending' })
+      .populate('requester', 'fullName email profilePic')
+      .populate('recipient', 'fullName email profilePic');
+
+    return res.status(200).json({ incoming, outgoing });
+  })
+);
+
+
+
+router.get(
+  '/relationships/blocks/:userId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const check = ensureSelfOrAdmin(req, res);
+    if (!check.ok) return;
+
+    const userId = req.params.userId;
     const blocks = await Relationship.find({
-      $or: [
-        { requester: userId, status: 'blocked' },
-        { recipient: userId, status: 'blocked' }
-      ]
+      $or: [{ requester: userId, status: 'blocked' }, { recipient: userId, status: 'blocked' }]
+    }).populate('requester', 'fullName email profilePic').populate('recipient', 'fullName email profilePic');
+
+    // map to other user
+    const blockedUsers = blocks.map(b => {
+      const other = b.requester._id.toString() === userId ? b.recipient : b.requester;
+      return { _id: other._id, fullName: other.fullName, email: other.email, profilePic: other.profilePic };
     });
-    const blockedUserIds = blocks.map(block =>
-      block.requester.toString() === userId ? block.recipient : block.requester
-    );
-    res.status(200).json(blockedUserIds);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
-// get pending requests
-app.get('/api/relationships/requests/:userId', verifyToken, async (req, res) => {
-  try {
-    const { userId } = req.params;
+    return res.status(200).json(blockedUsers);
+  })
+);
 
-    const requests = await Relationship.find({
-      recipient: userId,
-      status: 'pending'
-    })
-      .populate('requester', 'fullName profilePic email') 
-      .populate('recipient', 'fullName profilePic email'); 
 
-    res.status(200).json(requests);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+router.delete(
+  '/relationships/:otherUserId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    if (req.user && req.user.id && req.user.id.toString() === req.params.otherUserId?.toString()) {
+      return res.status(400).json({ message: 'Invalid request' });
+    }
 
-// delete relationship
-app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
-  try {
-    const { relationshipId } = req.params;
-    await Relationship.findByIdAndDelete(relationshipId);
-    res.status(200).json({ message: 'Relationship deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+    return await unfriend(req, res);
+  })
+);
+router.delete(
+  '/relationships/id/:relationshipId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const relId = req.params.relationshipId;
+    if (!relId) return res.status(400).json({ message: 'relationshipId required' });
+
+    const rel = await Relationship.findById(relId);
+    if (!rel) return res.status(404).json({ message: 'Relationship not found' });
+
+    const callerId = req.user && req.user.id ? req.user.id.toString() : null;
+    const isAdmin = req.user && req.user.isAdmin;
+
+    // chỉ requester, recipient hoặc admin được xóa
+    if (!isAdmin && rel.requester.toString() !== callerId && rel.recipient.toString() !== callerId) {
+      return res.status(403).json({ message: 'Forbidden: không có quyền xóa relationship này' });
+    }
+
+    await Relationship.findByIdAndDelete(relId);
+    return res.status(200).json({ message: 'Relationship deleted' });
+  })
+);
+
 
 // start server
 module.exports = app;
