@@ -9,11 +9,11 @@ const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
 const { createRelationship,
-        updateRelationship,
-        getFriendsUser,
-        getBlocksUser,
-        getPendingRequests,
-        deleteRelationship } = require('./controllers/relationship.controller')
+  updateRelationship,
+  getFriendsUser,
+  getBlocksUser,
+  getPendingRequests,
+  deleteRelationship } = require('./controllers/relationship.controller')
 const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
@@ -372,11 +372,17 @@ app.get('/api/relationships/friends/:userId', verifyToken, async (req, res) => {
       .populate('recipient', 'fullName email profilePic');
 
     // Xử lý để chỉ trả về info của "thằng bạn" chứ không phải cả 2
-    const friendList = friends.map(rel =>
-      rel.requester._id.toString() === userId
+    const friendList = friends.map(rel => {
+      const friend = rel.requester._id.toString() === userId
         ? rel.recipient
-        : rel.requester
-    );
+        : rel.requester;
+
+      return {
+        relationshipId: rel._id,  
+        ...friend.toObject()
+      };
+    });
+
 
     res.status(200).json(friendList);
   } catch (error) {
@@ -420,8 +426,8 @@ app.get('/api/relationships/requests/:userId', verifyToken, async (req, res) => 
       recipient: userId,
       status: 'pending'
     })
-      .populate('requester', 'fullName profilePic email') 
-      .populate('recipient', 'fullName profilePic email'); 
+      .populate('requester', 'fullName profilePic email')
+      .populate('recipient', 'fullName profilePic email');
 
     res.status(200).json(requests);
   } catch (error) {
