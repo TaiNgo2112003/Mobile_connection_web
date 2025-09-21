@@ -1,5 +1,4 @@
-import Relationship from '../models/relationships.js';
-import User from '../models/User.js'; // để search/populate
+import User from '../models/User.js'; 
 import mongoose from 'mongoose';
 
 /**
