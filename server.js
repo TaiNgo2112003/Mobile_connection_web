@@ -361,35 +361,51 @@ app.put('/api/relationships/:relationshipId', verifyToken, async (req, res) => {
 app.get('/api/relationships/friends/:userId', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
+
     const friends = await Relationship.find({
       $or: [
         { requester: userId, status: 'accepted' },
         { recipient: userId, status: 'accepted' }
       ]
-    });
-    const friendIds = friends.map(friend =>
-      friend.requester.toString() === userId ? friend.recipient : friend.requester
+    })
+      .populate('requester', 'fullName email profilePic')
+      .populate('recipient', 'fullName email profilePic');
+
+    // Xử lý để chỉ trả về info của "thằng bạn" chứ không phải cả 2
+    const friendList = friends.map(rel =>
+      rel.requester._id.toString() === userId
+        ? rel.recipient
+        : rel.requester
     );
-    res.status(200).json(friendIds);
+
+    res.status(200).json(friendList);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
+
 // get blocks
 app.get('/api/relationships/blocks/:userId', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
+
     const blocks = await Relationship.find({
       $or: [
         { requester: userId, status: 'blocked' },
         { recipient: userId, status: 'blocked' }
       ]
-    });
-    const blockedUserIds = blocks.map(block =>
-      block.requester.toString() === userId ? block.recipient : block.requester
+    })
+      .populate('requester', 'fullName email profilePic')
+      .populate('recipient', 'fullName email profilePic');
+
+    const blockedList = blocks.map(rel =>
+      rel.requester._id.toString() === userId
+        ? rel.recipient
+        : rel.requester
     );
-    res.status(200).json(blockedUserIds);
+
+    res.status(200).json(blockedList);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
