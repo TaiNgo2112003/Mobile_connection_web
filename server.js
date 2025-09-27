@@ -8,11 +8,12 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
+
 const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
 const Relationship = require('./models/relationships');
-const {io} = require('socket.io-client');
+
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
@@ -25,7 +26,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // init cloudinary
 cloudinary.config({
-cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
@@ -44,61 +45,54 @@ async function verifyToken(req, res, next) {
   }
 }
 
+
 // auth sync
-// Sau khi gọi /auth/sync thành công
 app.post('/auth/sync', verifyToken, async (req, res) => {
   try {
     const { uid, email } = req.firebaseUser || {};
     const { fullName, profilePic } = req.body || {};
     let user = await User.findOne({ firebaseUid: uid });
 
-    if (!user) {
-      // tạo mới nếu chưa có
-      user = new User({
-        firebaseUid: uid,
-        email: email || '',
-        fullName: fullName || '',
-        profilePic: profilePic || '',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      await user.save();
-    } else {
-      // cập nhật nếu cần
+    if (user) {
       let changed = false;
       if (fullName && fullName !== user.fullName) { user.fullName = fullName; changed = true; }
       if (profilePic && profilePic !== user.profilePic) { user.profilePic = profilePic; changed = true; }
       if (email && email !== user.email) { user.email = email; changed = true; }
       if (changed) { user.updatedAt = new Date(); await user.save(); }
+      const jwtToken = generateToken(user._id, res);
+      return res.json({ ok: true, user, token: jwtToken });
     }
 
-    const jwtToken = generateToken(user._id, res);
+    if (email) {
+      user = await User.findOne({ email });
+      if (user) {
+        user.firebaseUid = uid;
+        if (fullName) user.fullName = fullName;
+        if (profilePic) user.profilePic = profilePic;
+        user.updatedAt = new Date();
+        await user.save();
+        const jwtToken = generateToken(user._id, res);
+        return res.json({ ok: true, user, token: jwtToken });
+      }
+    }
 
-    // 👉 Chỉ connect socket sau khi có user._id
-    const socket = io("https://chat-app-y8dr.onrender.com", {
-      query: { userId: user._id },
-      transports: ['websocket']
+    const newUser = new User({
+      firebaseUid: uid,
+      email: email || '',
+      fullName: fullName || '',
+      profilePic: profilePic || '',
+      socialMedia: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
-
-    socket.on("connect", () => {
-      console.log("Connected to chat server " + socket.id);
-    });
-
-    socket.on("newMessage", (message) => {
-      console.log("New message received:", message);
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Disconnected from chat server: " + socket.id);
-    });
-
-    return res.json({ ok: true, user, token: jwtToken });
+    await newUser.save();
+    const jwtToken = generateToken(newUser._id, res);
+    return res.json({ ok: true, user: newUser, token: jwtToken });
   } catch (err) {
     if (err && err.code === 11000) return res.status(409).json({ error: 'Duplicate key', details: err.keyValue });
     return res.status(500).json({ error: 'Server error' });
   }
 });
-
 
 // get profile
 app.get('/me', verifyToken, async (req, res) => {
@@ -108,7 +102,7 @@ app.get('/me', verifyToken, async (req, res) => {
     return res.json({ ok: true, user });
   } catch {
     return res.status(500).json({ error: 'Server error' });
-  } 
+  }
 });
 
 // update profile
@@ -448,5 +442,5 @@ app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) =
 });
 
 // start server
-const PORT = app;
+module.exports = app;
 
