@@ -448,8 +448,5 @@ app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) =
 });
 
 // start server
-const PORT = 4000;
+const PORT = app;
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
