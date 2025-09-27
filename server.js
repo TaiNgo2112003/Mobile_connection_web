@@ -8,17 +8,11 @@ const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 const streamifier = require('streamifier');
 const { generateToken } = require('./utils');
-const { createRelationship,
-  updateRelationship,
-  getFriendsUser,
-  getBlocksUser,
-  getPendingRequests,
-  deleteRelationship } = require('./controllers/relationship.controller')
 const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
 const Relationship = require('./models/relationships');
-
+const {io} = require('socket.io-client');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
@@ -31,7 +25,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // init cloudinary
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
@@ -49,8 +43,22 @@ async function verifyToken(req, res, next) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
-
-
+let currentUserId = "";
+const socket  = io("https://chat-app-y8dr.onrender.com", {
+  query:{
+    userId: currentUserId
+  },
+  transports: ['websocket'],
+});
+socket.on("connect", () => {
+  console.log("Connected to chat server" + socket.id);
+});
+socket.on("newMessage", (message) => {
+  console.log("New message received:", message);
+});
+socket.on("disconnect", () => {
+  console.log("Disconnected from chat server");
+});
 // auth sync
 app.post('/auth/sync', verifyToken, async (req, res) => {
   try {
@@ -60,6 +68,7 @@ app.post('/auth/sync', verifyToken, async (req, res) => {
 
     if (user) {
       let changed = false;
+      currentUserId = user._id;
       if (fullName && fullName !== user.fullName) { user.fullName = fullName; changed = true; }
       if (profilePic && profilePic !== user.profilePic) { user.profilePic = profilePic; changed = true; }
       if (email && email !== user.email) { user.email = email; changed = true; }
@@ -107,7 +116,7 @@ app.get('/me', verifyToken, async (req, res) => {
     return res.json({ ok: true, user });
   } catch {
     return res.status(500).json({ error: 'Server error' });
-  }
+  } 
 });
 
 // update profile
