@@ -43,70 +43,62 @@ async function verifyToken(req, res, next) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
-let currentUserId = "";
-const socket  = io("https://chat-app-y8dr.onrender.com", {
-  query:{
-    userId: currentUserId
-  },
-  transports: ['websocket'],
-});
-socket.on("connect", () => {
-  console.log("Connected to chat server" + socket.id);
-});
-socket.on("newMessage", (message) => {
-  console.log("New message received:", message);
-});
-socket.on("disconnect", () => {
-  console.log("Disconnected from chat server");
-});
+
 // auth sync
+// Sau khi gọi /auth/sync thành công
 app.post('/auth/sync', verifyToken, async (req, res) => {
   try {
     const { uid, email } = req.firebaseUser || {};
     const { fullName, profilePic } = req.body || {};
     let user = await User.findOne({ firebaseUid: uid });
 
-    if (user) {
+    if (!user) {
+      // tạo mới nếu chưa có
+      user = new User({
+        firebaseUid: uid,
+        email: email || '',
+        fullName: fullName || '',
+        profilePic: profilePic || '',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await user.save();
+    } else {
+      // cập nhật nếu cần
       let changed = false;
-      currentUserId = user._id;
       if (fullName && fullName !== user.fullName) { user.fullName = fullName; changed = true; }
       if (profilePic && profilePic !== user.profilePic) { user.profilePic = profilePic; changed = true; }
       if (email && email !== user.email) { user.email = email; changed = true; }
       if (changed) { user.updatedAt = new Date(); await user.save(); }
-      const jwtToken = generateToken(user._id, res);
-      return res.json({ ok: true, user, token: jwtToken });
     }
 
-    if (email) {
-      user = await User.findOne({ email });
-      if (user) {
-        user.firebaseUid = uid;
-        if (fullName) user.fullName = fullName;
-        if (profilePic) user.profilePic = profilePic;
-        user.updatedAt = new Date();
-        await user.save();
-        const jwtToken = generateToken(user._id, res);
-        return res.json({ ok: true, user, token: jwtToken });
-      }
-    }
+    const jwtToken = generateToken(user._id, res);
 
-    const newUser = new User({
-      firebaseUid: uid,
-      email: email || '',
-      fullName: fullName || '',
-      profilePic: profilePic || '',
-      socialMedia: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    // 👉 Chỉ connect socket sau khi có user._id
+    const socket = io("https://chat-app-y8dr.onrender.com", {
+      query: { userId: user._id },
+      transports: ['websocket']
     });
-    await newUser.save();
-    const jwtToken = generateToken(newUser._id, res);
-    return res.json({ ok: true, user: newUser, token: jwtToken });
+
+    socket.on("connect", () => {
+      console.log("Connected to chat server " + socket.id);
+    });
+
+    socket.on("newMessage", (message) => {
+      console.log("New message received:", message);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Disconnected from chat server: " + socket.id);
+    });
+
+    return res.json({ ok: true, user, token: jwtToken });
   } catch (err) {
     if (err && err.code === 11000) return res.status(409).json({ error: 'Duplicate key', details: err.keyValue });
     return res.status(500).json({ error: 'Server error' });
   }
 });
+
 
 // get profile
 app.get('/me', verifyToken, async (req, res) => {
@@ -456,5 +448,8 @@ app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) =
 });
 
 // start server
-module.exports = app;
+const PORT = 4000;
 
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
