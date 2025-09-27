@@ -12,7 +12,7 @@ const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
 const Relationship = require('./models/relationships');
-const {io} = require('socket.io-client');
+const {ioClient} = require('socket.io-client');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
@@ -75,21 +75,26 @@ app.post('/auth/sync', verifyToken, async (req, res) => {
     const jwtToken = generateToken(user._id, res);
 
     // 👉 Chỉ connect socket sau khi có user._id
-    const socket = io("https://chat-app-y8dr.onrender.com", {
-      query: { userId: user._id },
-      transports: ['websocket']
+    const socket = ioClient("https://chat-app-y8dr.onrender.com", {
+      auth: { userId: String(user._id) }, 
+      transports: ['websocket'],
+      reconnection: true,
     });
 
     socket.on("connect", () => {
       console.log("Connected to chat server " + socket.id);
     });
 
-    socket.on("newMessage", (message) => {
-      console.log("New message received:", message);
+    socket.on("getOnlineUsers", (list) => {
+      console.log("Received online list", list);
     });
 
-    socket.on("disconnect", () => {
-      console.log("Disconnected from chat server: " + socket.id);
+    socket.on("newMessage", (message) => {
+      console.log("New message via socket (backend):", message);
+    });
+
+    socket.on("disconnect", (reason) => {
+      console.log("Disconnected from chat server:", reason);
     });
 
     return res.json({ ok: true, user, token: jwtToken });
@@ -450,3 +455,4 @@ app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) =
 // start server
 const PORT = app;
 
+module.exports = app;
