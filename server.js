@@ -76,25 +76,20 @@ app.post('/auth/sync', verifyToken, async (req, res) => {
 
     // 👉 Chỉ connect socket sau khi có user._id
     const socket = ioClient("https://chat-app-y8dr.onrender.com", {
-      auth: { userId: String(user._id) }, 
-      transports: ['websocket'],
-      reconnection: true,
+      query: { userId: user._id },
+      transports: ['websocket']
     });
 
     socket.on("connect", () => {
       console.log("Connected to chat server " + socket.id);
     });
 
-    socket.on("getOnlineUsers", (list) => {
-      console.log("Received online list", list);
-    });
-
     socket.on("newMessage", (message) => {
-      console.log("New message via socket (backend):", message);
+      console.log("New message received:", message);
     });
 
-    socket.on("disconnect", (reason) => {
-      console.log("Disconnected from chat server:", reason);
+    socket.on("disconnect", () => {
+      console.log("Disconnected from chat server: " + socket.id);
     });
 
     return res.json({ ok: true, user, token: jwtToken });
