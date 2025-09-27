@@ -12,7 +12,7 @@ const User = require('./models/User');
 const Post = require('./models/post');
 const Comment = require('./models/comment');
 const Relationship = require('./models/relationships');
-const {ioClient} = require('socket.io-client');
+const {io} = require('socket.io-client');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
@@ -75,7 +75,7 @@ app.post('/auth/sync', verifyToken, async (req, res) => {
     const jwtToken = generateToken(user._id, res);
 
     // 👉 Chỉ connect socket sau khi có user._id
-    const socket = ioClient("https://chat-app-y8dr.onrender.com", {
+    const socket = io("https://chat-app-y8dr.onrender.com", {
       query: { userId: user._id },
       transports: ['websocket']
     });
