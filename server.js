@@ -17,11 +17,6 @@ const Relationship = require('./models/relationships');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
-// Simple request logger to help debug missing routes
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-  next();
-});
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // connect mongoose
@@ -286,96 +281,6 @@ app.post('/api/posts/create', verifyToken, multer().fields([{ name: 'video' }, {
     res.status(201).json(newPost);
   } catch {
     res.status(500).json({ error: "Lỗi server!" });
-  }
-});
-
-// ----------------- Auth routes (signup / login / logout) -----------------
-// Signup: create a new user in Mongo with hashed password
-app.post('/signup', async (req, res) => {
-  try {
-    const { fullName, email, password } = req.body || {};
-
-    if (!fullName || !email || !password) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
-    }
-
-    const existing = await User.findOne({ email });
-    if (existing) {
-      return res.status(400).json({ message: 'Email already in use' });
-    }
-
-
-    const user = await User.create({
-      fullName,
-      email,
-      password: password,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    const token = generateToken(user._id, res);
-
-    return res.status(201).json({
-      _id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      token,
-    });
-
-  } catch (error) {
-    console.error('Signup error:', error);
-    return res.status(500).json({ message: 'Internal Server Error' });
-  }
-});
-
-// Login
-app.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body || {};
-
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password required' });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ message: 'Invalid credentials' });
-
-    const token = generateToken(user._id, res);
-
-    return res.status(200).json({
-      _id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      token,
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ message: 'Internal Server Error' });
-  }
-});
-
-// Logout
-app.post('/logout', (req, res) => {
-  try {
-    res.clearCookie('jwt', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-    });
-
-    return res.status(200).json({ message: 'Logged out successfully' });
-
-  } catch (error) {
-    console.error('Logout error:', error);
-    return res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
