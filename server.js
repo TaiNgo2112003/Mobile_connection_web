@@ -18,6 +18,7 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const bcrypt = require('bcryptjs');
 
 // connect mongoose
 mongoose.connect(process.env.MONGODB_URI)
@@ -284,6 +285,72 @@ app.post('/api/posts/create', verifyToken, multer().fields([{ name: 'video' }, {
   }
 });
 
+// ----------------- Auth routes (signup / login / logout) -----------------
+// Signup: create a new user in Mongo with hashed password
+app.post('/auth/signup', async (req, res) => {
+  try {
+    const { fullName, email, password } = req.body || {};
+    if (!fullName || !email || !password) return res.status(400).json({ message: 'All fields are required' });
+    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).json({ message: 'Email already exists' });
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(password, salt);
+
+    const newUser = new User({
+      firebaseUid: '',
+      email,
+      fullName,
+      password: hashed,
+      profilePic: '',
+      socialMedias: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await newUser.save();
+    const token = generateToken(newUser._id, res);
+
+    return res.status(201).json({ _id: newUser._id, fullName: newUser.fullName, email: newUser.email, profilePic: newUser.profilePic, token });
+  } catch (error) {
+    console.error('Error in /auth/signup:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// Login: verify credentials and return JWT
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ message: 'Email and password are required' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: 'Invalid email or password' });
+
+    const ok = await bcrypt.compare(password, user.password || '');
+    if (!ok) return res.status(400).json({ message: 'Invalid email or password' });
+
+    const token = generateToken(user._id, res);
+    return res.status(200).json({ _id: user._id, fullName: user.fullName, email: user.email, profilePic: user.profilePic, token });
+  } catch (error) {
+    console.error('Error in /auth/login:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// Logout: clear jwt cookie
+app.post('/auth/logout', (req, res) => {
+  try {
+    res.clearCookie('jwt', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' });
+    return res.status(200).json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Error in /auth/logout:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
 //-----------------------------------------------------------Relationship routes-----------------------------------------------------------//
 // search users
 
@@ -440,7 +507,12 @@ app.delete('/api/relationships/:relationshipId', verifyToken, async (req, res) =
     res.status(500).json({ message: error.message });
   }
 });
-
+//-----------------------------------------------------------Message routes-----------------------------------------------------------//
+app.post('/api/messages/send/:receiverId', verifyToken, upload.any(),  async (req, res) => {
+          const { text, image, file } = req.body; 
+        const { id: receiverId } = req.params; 
+        const senderId = req.user._id; // Lấy senderId từ user đã đăng nhập
+});
 // start server
 module.exports = app;
 
