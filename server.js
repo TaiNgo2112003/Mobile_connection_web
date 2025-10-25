@@ -18,7 +18,6 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-const bcrypt = require('bcryptjs');
 
 // connect mongoose
 mongoose.connect(process.env.MONGODB_URI)
