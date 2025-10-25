@@ -291,7 +291,7 @@ app.post('/api/posts/create', verifyToken, multer().fields([{ name: 'video' }, {
 
 // ----------------- Auth routes (signup / login / logout) -----------------
 // Signup: create a new user in Mongo with hashed password
-router.post('/signup', async (req, res) => {
+app.post('/signup', async (req, res) => {
   try {
     const { fullName, email, password } = req.body || {};
 
@@ -333,7 +333,7 @@ router.post('/signup', async (req, res) => {
 });
 
 // Login
-router.post('/login', async (req, res) => {
+app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
 
@@ -363,7 +363,7 @@ router.post('/login', async (req, res) => {
 });
 
 // Logout
-router.post('/logout', (req, res) => {
+app.post('/logout', (req, res) => {
   try {
     res.clearCookie('jwt', {
       httpOnly: true,
