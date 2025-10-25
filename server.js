@@ -23,7 +23,6 @@ app.use((req, res, next) => {
   next();
 });
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-const bcrypt = require('bcryptjs');
 
 // connect mongoose
 mongoose.connect(process.env.MONGODB_URI)
